@@ -1,6 +1,20 @@
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { Button, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Button, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { initializeApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCG5Kv-6FhNT_3xcQy7gpdCURJuB5wfPyE",
+  authDomain: "student-record-system-9f4e7.firebaseapp.com",
+  projectId: "student-record-system-9f4e7",
+  storageBucket: "student-record-system-9f4e7.firebasestorage.app",
+  messagingSenderId: "421064416819",
+  appId: "1:421064416819:web:8b248556f0d7bc6254cd46"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 
 function LoginScreen({ onSwitch }) {
   const [credential, setCredential] = useState('');
@@ -25,7 +39,7 @@ function LoginScreen({ onSwitch }) {
         placeholder="Password"
         style={styles.input}
       />
-      <Button title="Login" onPress={() => {}} />
+      <Button title="Login" onPress={() => signInWithEmailAndPassword(auth, credential, password).then((uc) => onSwitch('dashboard', uc.user)).catch(e => alert(e.message))} />
       <View style={styles.spacer} />
       <Button title="Go to Register" onPress={() => onSwitch('register')} />
       <StatusBar style="auto" />
@@ -64,7 +78,7 @@ function RegisterScreen({ onSwitch }) {
         placeholder="Password"
         style={styles.input}
       />
-      <Button title="Register" onPress={() => {}} />
+      <Button title="Register" onPress={() => createUserWithEmailAndPassword(auth, credential, password).then(() => onSwitch('login')).catch(e => alert(e.message))} />
       <View style={styles.spacer} />
       <Button title="Go to Login" onPress={() => onSwitch('login')} />
       <StatusBar style="auto" />
@@ -72,14 +86,66 @@ function RegisterScreen({ onSwitch }) {
   );
 }
 
+function DashboardScreen({ user, onLogout }) {
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView>
+        <Text style={styles.title}>Dashboard</Text>
+        <Text>Logged in as: {user.email}</Text>
+
+        <View style={styles.spacer} />
+        <Text style={styles.title}>Student Info</Text>
+
+        <View style={styles.tableRow}>
+          <Text style={styles.tableCell}>Name</Text>
+          <Text style={styles.tableCell}></Text>
+        </View>
+        <View style={styles.tableRow}>
+          <Text style={styles.tableCell}>ID Number</Text>
+          <Text style={styles.tableCell}></Text>
+        </View>
+        <View style={styles.tableRow}>
+          <Text style={styles.tableCell}>Course</Text>
+          <Text style={styles.tableCell}></Text>
+        </View>
+        <View style={styles.tableRow}>
+          <Text style={styles.tableCell}>Year Level</Text>
+          <Text style={styles.tableCell}></Text>
+        </View>
+
+        <View style={styles.spacer} />
+        <Text style={styles.title}>Grades</Text>
+
+        <View style={styles.tableRow}>
+          <Text style={styles.tableCell}>Code</Text>
+          <Text style={styles.tableCell}>Subject</Text>
+          <Text style={styles.tableCell}>Units</Text>
+          <Text style={styles.tableCell}>Grade</Text>
+        </View>
+
+        <View style={styles.spacer} />
+        <Text>GWA: </Text>
+
+        <View style={styles.spacer} />
+        <Button title="Logout" onPress={onLogout} />
+        <View style={styles.spacer} />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState('login');
+  const [user, setUser] = useState(null);
 
-  return screen === 'register' ? (
-    <RegisterScreen onSwitch={setScreen} />
-  ) : (
-    <LoginScreen onSwitch={setScreen} />
-  );
+  const handleSwitch = (dest, firebaseUser) => {
+    if (firebaseUser) setUser(firebaseUser);
+    setScreen(dest);
+  };
+
+  if (screen === 'register') return <RegisterScreen onSwitch={handleSwitch} />;
+  if (screen === 'dashboard') return <DashboardScreen user={user} onLogout={() => { auth.signOut(); setScreen('login'); }} />;
+  return <LoginScreen onSwitch={handleSwitch} />;
 }
 
 const styles = StyleSheet.create({
@@ -99,5 +165,14 @@ const styles = StyleSheet.create({
   },
   spacer: {
     height: 16,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+    paddingVertical: 6,
+  },
+  tableCell: {
+    flex: 1,
   },
 });
