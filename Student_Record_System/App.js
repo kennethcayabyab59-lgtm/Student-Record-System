@@ -1,8 +1,9 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCG5Kv-6FhNT_3xcQy7gpdCURJuB5wfPyE",
@@ -15,47 +16,19 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getFirestore(app);
 
 function getAuthEmail(schoolId) {
   return `${schoolId.toLowerCase()}@school.local`;
 }
 
-const initialStudentRecords = [
-  {
-    id: 'S001',
-    schoolId: '2023-70400',
-    name: 'June Kenneth',
-    course: 'BSIT',
-    block: 'A1',
-    yearLevel: '2',
-    grades: [
-      { code: 'IT101', subject: 'Programming 1', units: '3', grade: '1.75' },
-      { code: 'MA101', subject: 'Calculus', units: '3', grade: '2.00' },
-    ],
-  },
-  {
-    id: 'S002',
-    schoolId: '2023-70401',
-    name: 'Jhon Jorros',
-    course: 'BSCS',
-    block: 'B2',
-    yearLevel: '1',
-    grades: [
-      { code: 'CS101', subject: 'Computer Org', units: '3', grade: '2.25' },
-      { code: 'EN101', subject: 'English', units: '3', grade: '1.50' },
-    ],
-  },
-];
+const initialStudentRecords = [];
 
 function parseUserProfile(user) {
   const displayName = user.displayName || '';
   const [rawRole, name, idNumber] = displayName.split(':');
   const role = rawRole === 'student' || rawRole === 'professor' ? rawRole : 'student';
-  return {
-    role,
-    name: name || user.email,
-    idNumber: idNumber || '',
-  };
+  return { role, name: name || user.email, idNumber: idNumber || '' };
 }
 
 function createAppUser(firebaseUser) {
@@ -77,21 +50,9 @@ function LoginScreen({ onSwitch }) {
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Login</Text>
       <Text>School ID</Text>
-      <TextInput
-        value={credential}
-        onChangeText={setCredential}
-        autoCapitalize="none"
-        placeholder="2023-70400"
-        style={styles.input}
-      />
+      <TextInput value={credential} onChangeText={setCredential} autoCapitalize="none" placeholder="2023-70400" style={styles.input} />
       <Text>Password</Text>
-      <TextInput
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        placeholder="Password"
-        style={styles.input}
-      />
+      <TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="Password" style={styles.input} />
       <Button
         title="Login"
         onPress={() =>
@@ -111,20 +72,12 @@ function RegisterScreen({ onSwitch }) {
   const [name, setName] = useState('');
   const [schoolId, setSchoolId] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('student');
-
   const handleRegister = () => {
-    if (!name || !schoolId || !password) {
-      alert('Please fill in all fields.');
-      return;
-    }
-
+    if (!name || !schoolId || !password) { alert('Please fill in all fields.'); return; }
+    const isProfessor = schoolId.toUpperCase().startsWith('PROF-');
+    const role = isProfessor ? 'professor' : 'student';
     createUserWithEmailAndPassword(auth, getAuthEmail(schoolId), password)
-      .then((result) =>
-        updateProfile(result.user, {
-          displayName: `${role}:${name}:${schoolId}`,
-        })
-      )
+      .then((result) => updateProfile(result.user, { displayName: `${role}:${name}:${schoolId}` }))
       .then(() => onSwitch('login'))
       .catch((e) => alert(e.message));
   };
@@ -133,43 +86,11 @@ function RegisterScreen({ onSwitch }) {
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Register</Text>
       <Text>Name</Text>
-      <TextInput
-        value={name}
-        onChangeText={setName}
-        placeholder="Full name"
-        style={styles.input}
-      />
+      <TextInput value={name} onChangeText={setName} placeholder="Full name" style={styles.input} />
       <Text>School ID</Text>
-      <TextInput
-        value={schoolId}
-        onChangeText={setSchoolId}
-        autoCapitalize="none"
-        placeholder="2023-70400"
-        style={styles.input}
-      />
+      <TextInput value={schoolId} onChangeText={setSchoolId} autoCapitalize="none" placeholder="2023-70400" style={styles.input} />
       <Text>Password</Text>
-      <TextInput
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        placeholder="Password"
-        style={styles.input}
-      />
-      <Text style={styles.subTitle}>Select Role</Text>
-      <View style={styles.roleRow}>
-        <Pressable
-          style={[styles.roleOption, role === 'student' && styles.roleOptionActive]}
-          onPress={() => setRole('student')}
-        >
-          <Text style={[styles.roleOptionText, role === 'student' && styles.roleOptionTextActive]}>Student</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.roleOption, role === 'professor' && styles.roleOptionActive]}
-          onPress={() => setRole('professor')}
-        >
-          <Text style={[styles.roleOptionText, role === 'professor' && styles.roleOptionTextActive]}>Professor</Text>
-        </Pressable>
-      </View>
+      <TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="Password" style={styles.input} />
       <View style={styles.spacer} />
       <Button title="Register" onPress={handleRegister} />
       <View style={styles.spacer} />
@@ -180,17 +101,9 @@ function RegisterScreen({ onSwitch }) {
 }
 
 function StudentDashboard({ user, record, onLogout }) {
-  const studentRecord = record || {
-    schoolId: user.idNumber,
-    name: user.name,
-    course: '',
-    block: '',
-    yearLevel: '',
-    grades: [],
-  };
-
+  const studentRecord = record || { schoolId: user.idNumber, name: user.name, course: '', block: '', yearLevel: '', grades: [] };
   const gwa = studentRecord.grades.length
-    ? (studentRecord.grades.reduce((sum, grade) => sum + Number(grade.grade || 0), 0) / studentRecord.grades.length).toFixed(2)
+    ? (studentRecord.grades.reduce((sum, g) => sum + Number(g.grade || 0), 0) / studentRecord.grades.length).toFixed(2)
     : '-';
 
   return (
@@ -199,31 +112,13 @@ function StudentDashboard({ user, record, onLogout }) {
         <Text style={styles.title}>Student Dashboard</Text>
         <Text>Welcome, {user.name}</Text>
         <Text>Role: Student</Text>
-        <Text>School ID: {user.idNumber}</Text>
         <View style={styles.spacer} />
-
         <Text style={styles.sectionTitle}>Student Info</Text>
-        <View style={styles.tableRow}>
-          <Text style={styles.tableCell}>Name</Text>
-          <Text style={styles.tableCell}>{user.name}</Text>
-        </View>
-        <View style={styles.tableRow}>
-          <Text style={styles.tableCell}>ID</Text>
-          <Text style={styles.tableCell}>{studentRecord.id || ''}</Text>
-        </View>
-        <View style={styles.tableRow}>
-          <Text style={styles.tableCell}>Course</Text>
-          <Text style={styles.tableCell}>{studentRecord.course}</Text>
-        </View>
-        <View style={styles.tableRow}>
-          <Text style={styles.tableCell}>Block</Text>
-          <Text style={styles.tableCell}>{studentRecord.block}</Text>
-        </View>
-        <View style={styles.tableRow}>
-          <Text style={styles.tableCell}>Year</Text>
-          <Text style={styles.tableCell}>{studentRecord.yearLevel}</Text>
-        </View>
-
+        <View style={styles.tableRow}><Text style={styles.tableCell}>Name</Text><Text style={styles.tableCell}>{user.name}</Text></View>
+        <View style={styles.tableRow}><Text style={styles.tableCell}>School ID</Text><Text style={styles.tableCell}>{user.idNumber || ''}</Text></View>
+        <View style={styles.tableRow}><Text style={styles.tableCell}>Course</Text><Text style={styles.tableCell}>{studentRecord.course}</Text></View>
+        <View style={styles.tableRow}><Text style={styles.tableCell}>Block</Text><Text style={styles.tableCell}>{studentRecord.block}</Text></View>
+        <View style={styles.tableRow}><Text style={styles.tableCell}>Year</Text><Text style={styles.tableCell}>{studentRecord.yearLevel}</Text></View>
         <View style={styles.spacer} />
         <Text style={styles.sectionTitle}>Grades</Text>
         <View style={[styles.tableRow, styles.headerRow]}>
@@ -231,17 +126,131 @@ function StudentDashboard({ user, record, onLogout }) {
           <Text style={styles.tableCell}>Subject</Text>
           <Text style={styles.tableCell}>Units</Text>
           <Text style={styles.tableCell}>Grade</Text>
+          <Text style={styles.tableCell}>Professor</Text>
         </View>
-        {studentRecord.grades.map((grade, index) => (
-          <View key={index} style={styles.tableRow}>
-            <Text style={styles.tableCell}>{grade.code}</Text>
-            <Text style={styles.tableCell}>{grade.subject}</Text>
-            <Text style={styles.tableCell}>{grade.units}</Text>
-            <Text style={styles.tableCell}>{grade.grade}</Text>
+        {studentRecord.grades.map((g, i) => (
+          <View key={i} style={styles.tableRow}>
+            <Text style={styles.tableCell}>{g.code}</Text>
+            <Text style={styles.tableCell}>{g.subject}</Text>
+            <Text style={styles.tableCell}>{g.units}</Text>
+            <Text style={styles.tableCell}>{g.grade}</Text>
+            <Text style={styles.tableCell}>{g.professorName || 'N/A'}</Text>
           </View>
         ))}
         <View style={styles.spacer} />
         <Text>GWA: {gwa}</Text>
+        <View style={styles.spacer} />
+        <Button title="Logout" onPress={onLogout} />
+        <View style={styles.spacer} />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function BlockStudentsScreen({ block, onBack, onLogout }) {
+  const [students, setStudents] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newStudent, setNewStudent] = useState({ name: '', schoolId: '' });
+
+  useEffect(() => {
+    getDocs(collection(db, 'blocks', block.firestoreId, 'students'))
+      .then((snap) => setStudents(snap.docs.map((d) => ({
+        firestoreId: d.id, ...d.data(),
+        grades: d.data().grades || [{ code: block.subjectCode, subject: block.subjectName, units: block.units, grade: '' }],
+      }))))
+      .catch((e) => alert(e.message));
+  }, [block.firestoreId]);
+
+  const addStudent = () => {
+    if (!newStudent.name || !newStudent.schoolId) { alert('Name and School ID are required.'); return; }
+    const data = {
+      name: newStudent.name,
+      schoolId: newStudent.schoolId,
+      course: block.course,
+      block: block.blockName,
+      yearLevel: block.yearLevel,
+      grades: [{ code: block.subjectCode, subject: block.subjectName, units: block.units, grade: '' }],
+    };
+    addDoc(collection(db, 'blocks', block.firestoreId, 'students'), data)
+      .then((ref) => { setStudents((p) => [...p, { ...data, firestoreId: ref.id }]); setNewStudent({ name: '', schoolId: '' }); setIsAdding(false); alert('Student added.'); })
+      .catch((e) => alert(e.message));
+  };
+
+  const deleteStudent = (s) => {
+    deleteDoc(doc(db, 'blocks', block.firestoreId, 'students', s.firestoreId))
+      .then(() => { setStudents((p) => p.filter((x) => x.firestoreId !== s.firestoreId)); alert('Student deleted.'); })
+      .catch((e) => alert(e.message));
+  };
+
+  const saveChanges = () => {
+    updateDoc(doc(db, 'blocks', block.firestoreId, 'students', selected.firestoreId), { name: selected.name, grades: selected.grades })
+      .then(() => { setStudents((p) => p.map((s) => (s.firestoreId === selected.firestoreId ? selected : s))); setSelected(null); alert('Saved.'); })
+      .catch((e) => alert(e.message));
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView>
+        <Text style={styles.title}>{block.blockName}</Text>
+        <Text>Course: {block.course}</Text>
+        <Text>Year Level: {block.yearLevel}</Text>
+        <Text>Subject: {block.subjectCode} - {block.subjectName} ({block.units} units)</Text>
+        <View style={styles.spacer} />
+        <Button title="Back to Blocks" onPress={onBack} />
+        <View style={styles.spacer} />
+
+        <Text style={styles.sectionTitle}>Students</Text>
+        <Button title="Add Student" onPress={() => { setIsAdding(true); setSelected(null); }} />
+        <View style={styles.spacer} />
+
+        {isAdding && (
+          <>
+            <Text>Full Name</Text>
+            <TextInput value={newStudent.name} onChangeText={(v) => setNewStudent((p) => ({ ...p, name: v }))} placeholder="Full name" style={styles.input} />
+            <Text>School ID</Text>
+            <TextInput value={newStudent.schoolId} onChangeText={(v) => setNewStudent((p) => ({ ...p, schoolId: v }))} placeholder="2023-70400" style={styles.input} />
+            <Button title="Save New Student" onPress={addStudent} />
+            <View style={styles.spacer} />
+            <Button title="Cancel" onPress={() => setIsAdding(false)} />
+            <View style={styles.spacer} />
+          </>
+        )}
+
+        {students.map((s) => (
+          <View key={s.firestoreId} style={styles.recordCard}>
+            <Text style={styles.boldText}>{s.name}</Text>
+            <Text>School ID: {s.schoolId}</Text>
+            <Text>Grade: {s.grades[0]?.grade || 'Not yet graded'}</Text>
+            <View style={styles.editButton}>
+              <Button title="Edit Grade" onPress={() => { setSelected({ ...s, grades: s.grades.map((g) => ({ ...g })) }); setIsAdding(false); }} />
+            </View>
+            <View style={styles.editButton}>
+              <Button title="Delete" onPress={() => deleteStudent(s)} />
+            </View>
+          </View>
+        ))}
+
+        {selected && (
+          <>
+            <View style={styles.spacer} />
+            <Text style={styles.sectionTitle}>Edit: {selected.name}</Text>
+            <Text>Name</Text>
+            <TextInput value={selected.name} onChangeText={(v) => setSelected((p) => ({ ...p, name: v }))} style={styles.input} />
+            <Text style={styles.subTitle}>{selected.grades[0]?.subject}</Text>
+            <Text>Grade</Text>
+            <TextInput
+              value={selected.grades[0]?.grade}
+              onChangeText={(v) => setSelected((p) => ({ ...p, grades: [{ ...p.grades[0], grade: v }] }))}
+              placeholder="e.g. 1.75"
+              style={styles.input}
+            />
+            <View style={styles.spacer} />
+            <Button title="Save Changes" onPress={saveChanges} />
+            <View style={styles.spacer} />
+            <Button title="Cancel" onPress={() => setSelected(null)} />
+          </>
+        )}
 
         <View style={styles.spacer} />
         <Button title="Logout" onPress={onLogout} />
@@ -253,28 +262,45 @@ function StudentDashboard({ user, record, onLogout }) {
 
 function ProfessorDashboard({ user, records, setRecords, onLogout }) {
   const [selectedRecord, setSelectedRecord] = useState(null);
+  const [blocks, setBlocks] = useState([]);
+  const [selectedBlock, setSelectedBlock] = useState(null);
+  const [isAddingBlock, setIsAddingBlock] = useState(false);
+  const [newBlock, setNewBlock] = useState({ blockName: '', course: '', yearLevel: '', subjectCode: '', subjectName: '', units: '' });
 
-  const startEditing = (record) => {
-    setSelectedRecord({ ...record, grades: record.grades.map((grade) => ({ ...grade })) });
+  useEffect(() => {
+    getDocs(collection(db, 'blocks'))
+      .then((snap) => setBlocks(snap.docs.map((d) => ({ firestoreId: d.id, ...d.data() })).filter((b) => b.uid === user.uid)))
+      .catch((e) => alert(e.message));
+  }, []);
+
+  const saveBlock = () => {
+    const { blockName, course, yearLevel, subjectCode, subjectName, units } = newBlock;
+    if (!blockName || !course || !yearLevel || !subjectCode || !subjectName || !units) { alert('All fields are required.'); return; }
+    addDoc(collection(db, 'blocks'), { ...newBlock, uid: user.uid, professorName: user.name })
+      .then((ref) => { setBlocks((p) => [...p, { firestoreId: ref.id, ...newBlock, uid: user.uid, professorName: user.name }]); setNewBlock({ blockName: '', course: '', yearLevel: '', subjectCode: '', subjectName: '', units: '' }); setIsAddingBlock(false); alert('Block created.'); })
+      .catch((e) => alert(e.message));
   };
 
-  const saveChanges = () => {
-    if (!selectedRecord) return;
-    setRecords((prev) => prev.map((rec) => (rec.id === selectedRecord.id ? selectedRecord : rec)));
-    setSelectedRecord(null);
+  const deleteBlock = (block) => {
+    deleteDoc(doc(db, 'blocks', block.firestoreId))
+      .then(() => { setBlocks((p) => p.filter((b) => b.firestoreId !== block.firestoreId)); alert('Block deleted.'); })
+      .catch((e) => alert(e.message));
   };
 
-  const updateField = (field, value) => {
-    setSelectedRecord((prev) => ({ ...prev, [field]: value }));
-  };
-
+  const startEditing = (record) => { setSelectedRecord({ ...record, grades: record.grades.map((g) => ({ ...g })) }); };
+  const saveChanges = () => { if (!selectedRecord) return; setRecords((p) => p.map((r) => (r.id === selectedRecord.id ? selectedRecord : r))); setSelectedRecord(null); };
+  const updateField = (field, value) => { setSelectedRecord((p) => ({ ...p, [field]: value })); };
   const updateGrade = (index, field, value) => {
-    setSelectedRecord((prev) => {
-      const gradeList = [...prev.grades];
-      gradeList[index] = { ...gradeList[index], [field]: value };
-      return { ...prev, grades: gradeList };
+    setSelectedRecord((p) => {
+      const grades = [...p.grades];
+      grades[index] = { ...grades[index], [field]: value };
+      return { ...p, grades };
     });
   };
+
+  if (selectedBlock) {
+    return <BlockStudentsScreen block={selectedBlock} onBack={() => setSelectedBlock(null)} onLogout={onLogout} />;
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -282,6 +308,50 @@ function ProfessorDashboard({ user, records, setRecords, onLogout }) {
         <Text style={styles.title}>Professor Dashboard</Text>
         <Text>Welcome, {user.name}</Text>
         <Text>Role: Professor</Text>
+        <View style={styles.spacer} />
+
+        <Text style={styles.sectionTitle}>Blocks</Text>
+        <Button title="Create Block" onPress={() => setIsAddingBlock(true)} />
+        <View style={styles.spacer} />
+
+        {isAddingBlock && (
+          <>
+            <Text style={styles.sectionTitle}>New Block</Text>
+            <Text>Block Name</Text>
+            <TextInput value={newBlock.blockName} onChangeText={(v) => setNewBlock((p) => ({ ...p, blockName: v }))} placeholder="e.g. Block A" style={styles.input} />
+            <Text>Course</Text>
+            <TextInput value={newBlock.course} onChangeText={(v) => setNewBlock((p) => ({ ...p, course: v }))} placeholder="e.g. BSIT" style={styles.input} />
+            <Text>Year Level</Text>
+            <TextInput value={newBlock.yearLevel} onChangeText={(v) => setNewBlock((p) => ({ ...p, yearLevel: v }))} placeholder="e.g. 2" style={styles.input} />
+            <Text>Subject Code</Text>
+            <TextInput value={newBlock.subjectCode} onChangeText={(v) => setNewBlock((p) => ({ ...p, subjectCode: v }))} placeholder="e.g. CC101" style={styles.input} />
+            <Text>Subject Name</Text>
+            <TextInput value={newBlock.subjectName} onChangeText={(v) => setNewBlock((p) => ({ ...p, subjectName: v }))} placeholder="e.g. Computer Programming" style={styles.input} />
+            <Text>Units</Text>
+            <TextInput value={newBlock.units} onChangeText={(v) => setNewBlock((p) => ({ ...p, units: v }))} placeholder="e.g. 3" style={styles.input} />
+            <Button title="Save Block" onPress={saveBlock} />
+            <View style={styles.spacer} />
+            <Button title="Cancel" onPress={() => setIsAddingBlock(false)} />
+            <View style={styles.spacer} />
+          </>
+        )}
+
+        {blocks.map((block) => (
+          <View key={block.firestoreId} style={styles.recordCard}>
+            <Text style={styles.boldText}>{block.blockName}</Text>
+            <Text>Course: {block.course}</Text>
+            <Text>Year Level: {block.yearLevel}</Text>
+            <Text>Subject Code: {block.subjectCode}</Text>
+            <Text>Subject: {block.subjectName}</Text>
+            <View style={styles.editButton}>
+              <Button title="Open" onPress={() => setSelectedBlock(block)} />
+            </View>
+            <View style={styles.editButton}>
+              <Button title="Delete Block" onPress={() => deleteBlock(block)} />
+            </View>
+          </View>
+        ))}
+
         <View style={styles.spacer} />
 
         <Text style={styles.sectionTitle}>Students</Text>
@@ -304,60 +374,22 @@ function ProfessorDashboard({ user, records, setRecords, onLogout }) {
             <View style={styles.spacer} />
             <Text style={styles.sectionTitle}>Edit Student</Text>
             <Text>Name</Text>
-            <TextInput
-              value={selectedRecord.name}
-              onChangeText={(value) => updateField('name', value)}
-              style={styles.input}
-            />
+            <TextInput value={selectedRecord.name} onChangeText={(v) => updateField('name', v)} style={styles.input} />
             <Text>Course</Text>
-            <TextInput
-              value={selectedRecord.course}
-              onChangeText={(value) => updateField('course', value)}
-              style={styles.input}
-            />
+            <TextInput value={selectedRecord.course} onChangeText={(v) => updateField('course', v)} style={styles.input} />
             <Text>Block</Text>
-            <TextInput
-              value={selectedRecord.block}
-              onChangeText={(value) => updateField('block', value)}
-              style={styles.input}
-            />
+            <TextInput value={selectedRecord.block} onChangeText={(v) => updateField('block', v)} style={styles.input} />
             <Text>Year Level</Text>
-            <TextInput
-              value={selectedRecord.yearLevel}
-              onChangeText={(value) => updateField('yearLevel', value)}
-              style={styles.input}
-            />
-
+            <TextInput value={selectedRecord.yearLevel} onChangeText={(v) => updateField('yearLevel', v)} style={styles.input} />
             <Text style={styles.subTitle}>Grades</Text>
-            {selectedRecord.grades.map((grade, index) => (
-              <View key={index} style={styles.gradeRow}>
-                <TextInput
-                  value={grade.code}
-                  onChangeText={(value) => updateGrade(index, 'code', value)}
-                  placeholder="Code"
-                  style={[styles.input, styles.gradeInput]}
-                />
-                <TextInput
-                  value={grade.subject}
-                  onChangeText={(value) => updateGrade(index, 'subject', value)}
-                  placeholder="Subject"
-                  style={[styles.input, styles.gradeInput]}
-                />
-                <TextInput
-                  value={grade.units}
-                  onChangeText={(value) => updateGrade(index, 'units', value)}
-                  placeholder="Units"
-                  style={[styles.input, styles.gradeInput]}
-                />
-                <TextInput
-                  value={grade.grade}
-                  onChangeText={(value) => updateGrade(index, 'grade', value)}
-                  placeholder="Grade"
-                  style={[styles.input, styles.gradeInput]}
-                />
+            {selectedRecord.grades.map((g, i) => (
+              <View key={i} style={styles.gradeRow}>
+                <TextInput value={g.code} onChangeText={(v) => updateGrade(i, 'code', v)} placeholder="Code" style={[styles.input, styles.gradeInput]} />
+                <TextInput value={g.subject} onChangeText={(v) => updateGrade(i, 'subject', v)} placeholder="Subject" style={[styles.input, styles.gradeInput]} />
+                <TextInput value={g.units} onChangeText={(v) => updateGrade(i, 'units', v)} placeholder="Units" style={[styles.input, styles.gradeInput]} />
+                <TextInput value={g.grade} onChangeText={(v) => updateGrade(i, 'grade', v)} placeholder="Grade" style={[styles.input, styles.gradeInput]} />
               </View>
             ))}
-
             <Button title="Save Changes" onPress={saveChanges} />
             <View style={styles.spacer} />
             <Button title="Cancel" onPress={() => setSelectedRecord(null)} />
@@ -373,13 +405,45 @@ function ProfessorDashboard({ user, records, setRecords, onLogout }) {
 }
 
 function DashboardScreen({ user, records, setRecords, onLogout }) {
-  const record = records.find((item) => item.schoolId === user.idNumber || item.id === user.idNumber);
+  const [studentRecord, setStudentRecord] = useState(null);
+
+  useEffect(() => {
+    if (user.role !== 'student') return;
+    getDocs(collection(db, 'blocks'))
+      .then((blockSnap) => {
+        const blockDocs = blockSnap.docs;
+        return Promise.all(
+          blockDocs.map((b) =>
+            getDocs(collection(db, 'blocks', b.id, 'students')).then((studentSnap) =>
+              studentSnap.docs.map((s) => ({
+                firestoreId: s.id,
+                ...s.data(),
+                grades: (s.data().grades || []).map(g => ({ ...g, professorName: b.data().professorName }))
+              }))
+            )
+          )
+        );
+      })
+      .then((allStudentArrays) => {
+        const all = allStudentArrays.flat();
+        // Find ALL records for this student and merge their grades
+        const matchingRecords = all.filter((s) => s.schoolId === user.idNumber);
+        if (matchingRecords.length > 0) {
+          // Use the first record as base, but merge all grades from all records
+          const mergedRecord = {
+            ...matchingRecords[0],
+            grades: matchingRecords.flatMap(r => r.grades || [])
+          };
+          setStudentRecord(mergedRecord);
+        }
+      })
+      .catch((e) => alert('Failed to load student record: ' + e.message));
+  }, [user]);
 
   if (user.role === 'professor') {
     return <ProfessorDashboard user={user} records={records} setRecords={setRecords} onLogout={onLogout} />;
   }
-
-  return <StudentDashboard user={user} record={record} onLogout={onLogout} />;
+  return <StudentDashboard user={user} record={studentRecord} onLogout={onLogout} />;
 }
 
 export default function App() {
@@ -481,6 +545,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   gradeInput: {
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
     marginBottom: 8,
   },
 });
